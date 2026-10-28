@@ -37,6 +37,7 @@ function smoke_core_queries(PDO $pdo, string $driver): void {
         'SELECT COUNT(*) FROM notify_queue',
         'SELECT COUNT(*) FROM login_fail',
         'SELECT d.id FROM devices d LEFT JOIN snmp_profiles sp ON sp.id=d.snmp_profile LIMIT 0',
+        'SELECT check_mode FROM devices LIMIT 0',
         'SELECT l.id FROM map_links l LEFT JOIN link_traffic t ON t.link_id=l.id LIMIT 0',
         'SELECT s.id FROM services s JOIN devices d ON d.id=s.device_id LIMIT 0'
     ] as $query) {
@@ -55,6 +56,7 @@ function smoke_schema(PDO $pdo): void {
     smoke_assert(
         np_column_exists($pdo, 'devices', 'id')
             && np_column_exists($pdo, 'devices', 'ping_fail_count')
+            && np_column_exists($pdo, 'devices', 'check_mode')
             && !np_column_exists($pdo, 'devices', 'netpulse_missing_column'),
         "$driver column metadata lookup did not use the PDO connection driver"
     );

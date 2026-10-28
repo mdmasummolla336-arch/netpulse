@@ -209,7 +209,7 @@ function np_cli_guard(): void {
 
 /** Verzia schémy – zvýš pri každej zmene migrate(). Keď DB už má túto verziu,
  *  migrácie sa preskočia (inak by sa pri každej požiadavke skúšalo ~20× ALTER TABLE). */
-const NP_SCHEMA_VERSION = 12;
+const NP_SCHEMA_VERSION = 13;
 
 /** Idempotentné migrácie – doplní chýbajúce stĺpce, tabuľky a indexy v existujúcich DB. */
 function migrate(): void {
@@ -255,6 +255,7 @@ function migrate(): void {
         ['maps',    'sort_order', $intt],
         ['devices', 'monitored',  $mysql ? 'TINYINT DEFAULT 1' : 'INTEGER DEFAULT 1'],
         ['devices', 'ping_fail_count', $mysql ? 'INT NOT NULL DEFAULT 0' : 'INTEGER NOT NULL DEFAULT 0'],
+        ['devices', 'check_mode', $mysql ? 'VARCHAR(16)' : 'TEXT'],   // auto / ping / services
         ['devices', 'password',   $mysql ? 'VARCHAR(255)' : 'TEXT'],
         ['devices', 'vendor',     $mysql ? "VARCHAR(32) NOT NULL DEFAULT 'unknown'" : "TEXT NOT NULL DEFAULT 'unknown'"],
         ['map_nodes', 'category', $mysql ? "VARCHAR(32) NOT NULL DEFAULT 'normal'" : "TEXT NOT NULL DEFAULT 'normal'"],
@@ -297,7 +298,7 @@ function migrate(): void {
     // over, že kľúčové stĺpce naozaj existujú – až potom označ schému ako hotovú
     foreach ([['map_nodes','category'],['devices','down_ts'],['devices','notified'],['devices','ping_fail_count'],['devices','vendor'],['devices','ssh_port'],['outages','started_ts'],['link_traffic','ts_unix'],
               ['link_traffic','ctype'],              ['link_traffic','uptime'],['notify_queue','next_try'],['login_fail','ts'],
-              ['login_history','username'],['login_history','logged_at']] as [$t,$c]) {
+              ['devices','check_mode'],['login_history','username'],['login_history','logged_at']] as [$t,$c]) {
         if (!np_column_exists($pdo, $t, $c)) { $failed = true; error_log("NetPulse migrate: chýba $t.$c"); }
     }
     foreach (['mx80_categories','mx80_interfaces','mx80_counters','mx80_traffic_history','mx80_category_permissions'] as $table) {

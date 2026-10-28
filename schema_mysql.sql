@@ -8,7 +8,7 @@ CREATE TABLE IF NOT EXISTS devices(
   snmp_profile BIGINT, username VARCHAR(128), password VARCHAR(255), type_id BIGINT,
   status VARCHAR(16) DEFAULT 'unknown', last_check DATETIME NULL, rtt DOUBLE NULL, down_since DATETIME NULL, down_ts BIGINT NULL,
   monitored TINYINT DEFAULT 1, notified VARCHAR(16) NULL,
-  ping_fail_count INT NOT NULL DEFAULT 0) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+  ping_fail_count INT NOT NULL DEFAULT 0, check_mode VARCHAR(16) NULL) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 CREATE TABLE IF NOT EXISTS map_nodes(
   id BIGINT PRIMARY KEY, map_id BIGINT, kind VARCHAR(16) DEFAULT 'device',
   device_id BIGINT, submap_id BIGINT, x INT, y INT, image BIGINT, label TEXT, INDEX idx_nodes_map(map_id)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

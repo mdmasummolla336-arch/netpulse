@@ -509,6 +509,15 @@ function np_monitoring_off(PDO $pdo, int $id): void {
             );
         }
         if ($dev && !has_role('admin')) { unset($dev['password'], $dev['username']); }
+        if ($dev) {
+            if (np_is_olt_type((string)($dev['type_name'] ?? ''))) {
+                $dev['check_effective'] = 'olt';
+            } else {
+                $svAll = $pdo->prepare('SELECT ptype FROM services WHERE device_id=? AND (enabled=1 OR enabled IS NULL)');
+                $svAll->execute([$id]);
+                $dev['check_effective'] = np_effective_mode($dev['check_mode'] ?? null, $svAll->fetchAll());
+            }
+        }
         echo json_encode([
             'device'=>$dev,'services'=>$sv->fetchAll(),
             'history'=>array_reverse($hi->fetchAll()),'outages'=>$ou->fetchAll()]); break;
@@ -547,11 +556,17 @@ function np_monitoring_off(PDO $pdo, int $id): void {
                     ->execute([$deviceId]);
             }
         }
+        if (isset($in['check_mode'])) {
+            $checkMode = in_array($in['check_mode'], ['auto','ping','services'], true)
+                ? $in['check_mode'] : 'auto';
+            $pdo->prepare('UPDATE devices SET check_mode=? WHERE id=?')
+                ->execute([$checkMode === 'auto' ? null : $checkMode, $deviceId]);
+        }
         $pdo->prepare('UPDATE devices SET name=?,ip=?,dns=?,type_id=?,username=?,password=?,monitored=?,snmp_profile=?,vendor=?,ssh_port=? WHERE id=?')
-            ->execute([trim($in['name']),trim($in['ip'] ?? ''),trim($in['dns'] ?? ''),
-                       $in['type_id'] ?: null,trim($in['username'] ?? ''),(string)($in['password'] ?? ''),$mon,
+            ->execute([trim((string)$in['name']),trim((string)($in['ip'] ?? '')),trim((string)($in['dns'] ?? '')),
+                       $typeId,trim((string)($in['username'] ?? '')),(string)($in['password'] ?? ''),$mon,
                        (isset($in['snmp_profile'])&&$in['snmp_profile']!=='')?(int)$in['snmp_profile']:null,
-                       $vendor,(int)$sshPort,(int)$in['id']]);
+                       $vendor,(int)$sshPort,$deviceId]);
         if (!$mon) np_monitoring_off($pdo, (int)$in['id']);
         setting_set('optical_template_device_' . (int)$in['id'], $opticalTemplate);
         echo json_encode(['ok'=>true]); break;
@@ -670,7 +685,14 @@ function np_monitoring_off(PDO $pdo, int $id): void {
             }
             $out[] = ['check'=>$label, 'ok'=>$ok, 'ms'=>$ms, 'service'=>true, 'enabled'=>(string)$s['enabled'] !== '0'];
         }
-        echo json_encode(['ok'=>true, 'results'=>$out]); break;
+        $cmSt = $pdo->prepare('SELECT check_mode FROM devices WHERE id=?'); $cmSt->execute([$id]);
+        $en = array_values(array_filter($svcs, fn($s) => (string)$s['enabled'] !== '0'));
+        $mode = np_effective_mode($cmSt->fetchColumn() ?: null, $en);
+        $svcRes = array_values(array_filter($out, fn($x) => !empty($x['service']) && $x['enabled']
+                       && preg_match('/\((ICMP|TCP|DNS|SNMP)\b/', $x['check'])));
+        if ($mode === 'services') { $up = (bool)$svcRes; foreach ($svcRes as $x) if (!$x['ok']) $up = false; }
+        else { $up = $pingOk; foreach ($svcRes as $x) if ($x['ok']) $up = true; }
+        echo json_encode(['ok'=>true, 'results'=>$out, 'mode'=>$mode, 'up'=>$up]); break;
 
     case 'devices':
         $q = '%' . ($_GET['q'] ?? '') . '%';
