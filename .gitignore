@@ -3,6 +3,7 @@ data/*.db
 data/*.db-journal
 data/*.db-wal
 data/*.db-shm
+data/*.lock
 data/sessions/
 
 # Dude source database (user-provided, private)
@@ -18,3 +19,19 @@ Thumbs.db
 *.swp
 .idea/
 .vscode/
+
+# Local database backups, source snapshots and runtime caches
+data/*.db.*
+data/*.sqlite
+data/*.sqlite-*
+backups/
+backup/
+backup-before-*/
+*.before-*
+**/*.before-*
+*.bak-*
+**/*.bak-*
+*.backup-*
+**/*.backup-*
+__pycache__/
+**/__pycache__/

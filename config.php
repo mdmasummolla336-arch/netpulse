@@ -8,7 +8,7 @@
  */
 return [
     // Názov aplikácie (zobrazí sa v hlavičke, titulku a prihlásení)
-    'APP_NAME'    => 'NetPulse',
+    'APP_NAME'    => 'EM NETWORK',
     // Časové pásmo aplikácie (časy vo výpisoch, udalostiach a Telegram správach)
     // Časové pásmo. Prázdne = zistí sa automaticky zo servera; zmeniť sa dá aj v Nastaveniach.
     'APP_TIMEZONE'=> getenv('DUDEWEB_TZ') ?: '',
@@ -42,4 +42,5 @@ return [
     'HISTORY_DAYS'  => 14, // koľko dní držať históriu stavov
     'HISTORY_EVERY' => 60, // ako často vzorkovať odozvu (s); zmena stavu sa zapíše vždy
     'TRAFFIC_DAYS'  => 90, // koľko dní držať históriu toku (grafy Rx/Tx)
+    'OPTICAL_HISTORY_DAYS' => 30, // optical power history retention
 ];

@@ -4,7 +4,7 @@
 <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title><?= htmlspecialchars(cfg('APP_NAME') ?: 'NetPulse') ?></title>
 <link rel="icon" type="image/svg+xml" href="favicon.svg">
-<script>try{document.documentElement.dataset.theme=localStorage.getItem('np-theme')||'auto';}catch(e){document.documentElement.dataset.theme='auto';}</script>
+<script>document.documentElement.dataset.theme='dark';try{localStorage.setItem('np-theme','dark');}catch(e){}</script>
 <link rel="stylesheet" href="assets/style.css?v=<?= @filemtime(__DIR__.'/assets/style.css') ?>">
 </head>
 <body>
@@ -13,7 +13,7 @@
   <div id="summary" class="summary"></div>
   <div class="top-right">
     <select id="lang-top" class="lang-select" title="Language"></select>
-    <button id="theme-toggle" class="theme-btn" data-i18n-title="Prepnúť tému" title="Prepnúť tému">🌙</button>
+    <span class="theme-btn" title="Dark theme" aria-label="Dark theme">🌙</span>
     <span class="user"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21a8 8 0 0 0-16 0"/><circle cx="12" cy="7" r="4"/></svg> <?= htmlspecialchars(current_user()) ?></span>
     <a class="logout" href="logout.php" data-i18n="Odhlásiť">Odhlásiť</a>
   </div>
@@ -23,11 +23,15 @@
   <nav id="sections">
     <button data-sec="maps" class="active"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m3 6 6-3 6 3 6-3v15l-6 3-6-3-6 3z"/><path d="M9 3v15M15 6v15"/></svg><span data-i18n="Mapy">Mapy</span></button>
     <button data-sec="devices"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg><span data-i18n="Zariadenia">Zariadenia</span></button>
+    <button data-sec="ports"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 8v4M11 8v4M15 8v4M19 8v4M8 16h8"/></svg><span>Ports</span></button>
+    <button data-sec="optical"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v20M5 7l7-5 7 5M5 17l7 5 7-5"/><circle cx="12" cy="12" r="3"/></svg><span>Optical / SFP</span></button>
     <button data-sec="services"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg><span data-i18n="Služby">Služby</span></button>
+    <button data-sec="ssh"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="18" rx="2"/><path d="m7 9 3 3-3 3M13 15h4"/></svg><span>SSH</span></button>
     <button data-sec="faults"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9v4M12 17h.01"/></svg><span data-i18n="Poruchy">Poruchy</span></button>
     <button data-sec="events"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></svg><span data-i18n="Udalosti">Udalosti</span></button>
     <button data-sec="graphs"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><rect x="7" y="11" width="3" height="7" rx="0.5"/><rect x="12" y="7" width="3" height="11" rx="0.5"/><rect x="17" y="13" width="3" height="5" rx="0.5"/></svg><span data-i18n="Grafy">Grafy</span></button>
     <button data-sec="settings"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg><span data-i18n="Nastavenia">Nastavenia</span></button>
+    <button data-sec="mx80" title="Core Router MX80 traffic"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 8h10M7 12h4M7 16h2M16 11v6M13 14h6"/></svg><span>Core Router MX80</span></button>
   </nav>
 
   <aside id="sidebar">
@@ -48,30 +52,138 @@
         <button id="btn-refresh">↻ <span data-i18n="Obnoviť">Obnoviť</span></button>
         <span id="mode" class="mode"></span>
       </div>
+      <div id="category-legend" aria-label="Map category and device status legend">
+        <span class="legend-item"><span class="legend-dot legend-normal"></span>Normal / UP</span>
+        <span class="legend-item"><span class="legend-dot legend-reseller"></span>Reseller</span>
+        <span class="legend-item"><span class="legend-dot legend-bandwidth"></span>Bandwidth Reseller</span>
+        <span class="legend-item"><span class="legend-dot legend-down"></span>DOWN</span>
+        <span class="legend-item"><span class="legend-dot legend-pending"></span>Pending</span>
+        <span class="legend-item"><span class="legend-dot legend-unknown"></span>Unknown</span>
+      </div>
       <div id="canvas-wrap">
         <svg id="canvas" xmlns="http://www.w3.org/2000/svg"></svg>
         <div id="tooltip" class="tooltip"></div>
       </div>
     </section>
     <!-- TABUĽKOVÉ SEKCIE -->
+    <section id="view-ports" class="view">
+      <div class="tools">
+        <button id="btn-port-discover">↻ Auto Discover</button>
+        <button id="btn-interface-sound" type="button" aria-pressed="false">🔕 Port-down whistle: Off</button>
+        <span id="port-summary"></span>
+      </div>
+      <div class="table-wrap"><table id="tbl-ports"></table></div>
+    </section>
     <section id="view-devices" class="view"><div class="table-wrap"><table id="tbl-devices"></table></div></section>
+    <section id="view-optical" class="view">
+      <div class="tools optical-toolbar">
+        <label for="optical-main-device">Device</label>
+        <select id="optical-main-device"><option value="">Loading devices...</option></select>
+        <label for="optical-main-port">Port</label>
+        <select id="optical-main-port"><option value="">All ports</option></select>
+        <label for="optical-main-range">Range</label>
+        <select id="optical-main-range">
+          <option value="hour">Last hour</option>
+          <option value="day" selected>24 hours</option>
+          <option value="week">7 days</option>
+          <option value="month">30 days</option>
+        </select>
+        <button id="optical-main-refresh" type="button">Refresh</button>
+      </div>
+      <div id="optical-main-empty" style="padding:12px">Select a device to load optical readings.</div>
+      <div id="optical-main-table-wrap" class="table-wrap"></div>
+    </section>
     <section id="view-services" class="view"><div class="table-wrap"><table id="tbl-services"></table></div></section>
+    <section id="view-ssh" class="view">
+      <div class="ssh-layout">
+        <aside class="ssh-device-panel">
+          <div class="ssh-panel-title"><strong>SSH devices</strong><button id="ssh-refresh" type="button">↻</button></div>
+          <div id="ssh-device-list" class="ssh-device-list">Loading devices…</div>
+        </aside>
+        <section class="ssh-terminal-panel">
+          <header class="ssh-terminal-header">
+            <div><strong id="ssh-target">Select an SSH-enabled device</strong><span id="ssh-status" class="ssh-status">Disconnected</span></div>
+            <div class="ssh-controls">
+              <button id="ssh-connect" type="button" disabled>Connect</button>
+              <button id="ssh-disconnect" type="button" disabled>Disconnect</button>
+              <button id="ssh-reconnect" type="button" disabled>Reconnect</button>
+              <button id="ssh-copy" type="button" title="Copy selected terminal text">Copy</button>
+              <button id="ssh-paste" type="button" title="Paste clipboard text">Paste</button>
+              <button id="ssh-font-down" type="button" title="Decrease terminal font">A−</button>
+              <button id="ssh-font-up" type="button" title="Increase terminal font">A+</button>
+              <button id="ssh-fullscreen" type="button" title="Toggle fullscreen">Fullscreen</button>
+            </div>
+          </header>
+          <div id="ssh-terminal" class="ssh-terminal" aria-label="SSH terminal"></div>
+          <p class="ssh-note">Device status reflects NetPulse monitoring and does not confirm SSH access. Use SSH only on trusted networks; the server verifies device host keys against its known_hosts file.</p>
+        </section>
+      </div>
+    </section>
     <section id="view-faults" class="view"><div class="table-wrap"><table id="tbl-faults"></table></div></section>
     <section id="view-events" class="view"><div class="table-wrap"><table id="tbl-events"></table></div></section>
     <section id="view-graphs" class="view">
-      <div class="tools">
-        <span style="color:var(--muted);font-size:13px" data-i18n="Zdroj:">Zdroj:</span>
-        <select id="graph-src" style="min-width:220px"></select>
+      <div class="tools graph-toolbar">
+        <input id="graph-search" type="search" placeholder="Search device / IP / interface / alias..." aria-label="Search graph sources by device, IP, interface, or alias">
+        <button id="graph-select-all" type="button" aria-label="Select all matching graph sources">Select all</button>
+        <button id="graph-select-none" type="button" aria-label="Clear all selected graphs">Clear selection</button>
+        <span id="graph-selection-count" class="graph-selection-count" aria-live="polite"></span>
         <span class="sep"></span>
-        <div id="graph-ranges" class="range-btns">
-          <button data-r="hour" class="active" data-i18n="Hodina">Hodina</button>
-          <button data-r="day" data-i18n="Deň">Deň</button>
-          <button data-r="week" data-i18n="Týždeň">Týždeň</button>
-          <button data-r="month" data-i18n="Mesiac">Mesiac</button>
-          <button data-r="year" data-i18n="Rok">Rok</button>
+        <div id="graph-ranges" class="range-btns" role="group" aria-label="Graph time range">
+          <button data-r="hour" class="active">Hour</button>
+          <button data-r="day">Day</button>
+          <button data-r="week">Week</button>
+          <button data-r="month">Month</button>
+          <button data-r="year">Year</button>
         </div>
       </div>
-      <div class="graph-wrap"><canvas id="graph-canvas"></canvas><div id="graph-empty" class="empty"></div></div>
+      <div id="graph-source-list" class="graph-source-list"></div>
+      <div id="graph-empty" class="empty"></div>
+      <div id="graph-grid" class="graph-grid"></div>
+    </section>
+    <section id="view-mx80" class="view mx80-view">
+      <div class="tools mx80-toolbar">
+        <strong>Core Router MX80</strong>
+        <label class="mx80-admin-only" for="mx80-device-select">Router</label>
+        <select id="mx80-device-select" class="mx80-admin-only"><option value="">Select the Juniper MX80</option></select>
+        <button id="mx80-device-save" class="mx80-admin-only" type="button">Use router</button>
+        <button id="mx80-discover" class="mx80-admin-only" type="button">Discover described interfaces</button>
+        <span id="mx80-device-label"></span>
+        <span id="mx80-message" role="status" aria-live="polite"></span>
+      </div>
+      <div class="mx80-layout">
+        <aside class="mx80-category-panel">
+          <div class="mx80-panel-head">
+            <strong>Traffic categories</strong>
+            <button id="mx80-category-add" class="mx80-admin-only" type="button">＋</button>
+          </div>
+          <div id="mx80-category-tree" class="mx80-category-tree"></div>
+          <section class="mx80-permissions mx80-admin-only">
+            <h3>User category access</h3>
+            <label for="mx80-permission-user">User</label>
+            <select id="mx80-permission-user"><option value="">Choose a user</option></select>
+            <div id="mx80-permission-tree" class="mx80-permission-tree"></div>
+            <button id="mx80-permission-save" type="button">Save access</button>
+          </section>
+        </aside>
+        <div class="mx80-content">
+          <details id="mx80-interface-manager" class="mx80-interface-manager mx80-admin-only">
+            <summary>Interface selection and category assignments</summary>
+            <div id="mx80-interface-list"></div>
+            <button id="mx80-interfaces-save" type="button">Save selected interfaces</button>
+          </details>
+          <div class="tools mx80-range-toolbar">
+            <span id="mx80-selected-category">Select a category</span>
+            <div id="mx80-ranges" class="range-btns" role="group" aria-label="MX80 traffic history range">
+              <button data-r="hour" class="active">1 hour</button>
+              <button data-r="day">24 hours</button>
+              <button data-r="week">7 days</button>
+            </div>
+            <button id="mx80-refresh" type="button">Refresh</button>
+          </div>
+          <div id="mx80-empty" class="empty">Select a category to view assigned interface traffic.</div>
+          <div id="mx80-graph-grid" class="graph-grid"></div>
+        </div>
+      </div>
     </section>
     <section id="view-settings" class="view"><div id="settings-body"></div></section>
   </main>
@@ -80,10 +192,6 @@
     <div class="insp-head"><span id="insp-title" data-i18n="Detail">Detail</span>
       <button id="insp-close">✕</button></div>
     <div id="insp-body"></div>
-    <div class="insp-alerts">
-      <div class="insp-alerts-head">⚠️ <span data-i18n="Aktívne poruchy">Aktívne poruchy</span></div>
-      <ul id="alert-list"></ul>
-    </div>
   </aside>
 </div>
 
@@ -94,16 +202,13 @@
     <div class="tabs">
       <button data-tab="obecne" class="active" data-i18n="Obecné">Obecné</button>
       <button data-tab="sluzby" data-i18n="Služby">Služby</button>
-      <button data-tab="poruchy" data-i18n="Poruchy">Poruchy</button>
-      <button data-tab="historia" data-i18n="História">História</button>
       <button data-tab="snmp">SNMP</button>
       <button data-tab="nastroje" data-i18n="Nástroje">Nástroje</button>
     </div>
     <div class="modal-body">
       <div class="tab-pane active" id="tab-obecne"></div>
       <div class="tab-pane" id="tab-sluzby"></div>
-      <div class="tab-pane" id="tab-poruchy"></div>
-      <div class="tab-pane" id="tab-historia"><canvas id="rtt-chart" width="620" height="260"></canvas><div id="hist-empty" class="empty"></div></div>
+      </div>
       <div class="tab-pane" id="tab-snmp"></div>
       <div class="tab-pane" id="tab-nastroje"></div>
     </div>
@@ -147,6 +252,10 @@
   </div>
 </div>
 
-<script src="assets/i18n.js?v=<?= @filemtime(__DIR__.'/assets/i18n.js') ?>"></script>
-<script src="assets/app.js?v=<?= @filemtime(__DIR__.'/assets/app.js') ?>"></script>
+<link rel="stylesheet" href="assets/vendor/xterm/xterm.css?v=<?= @filemtime(__DIR__."/assets/vendor/xterm/xterm.css") ?>">
+    <script src="assets/i18n.js?v=<?= @filemtime(__DIR__.'/assets/i18n.js') ?>"></script>
+<script src="assets/graph_helpers.js?v=<?= @filemtime(__DIR__.'/assets/graph_helpers.js') ?>"></script>
+<script src="assets/vendor/xterm/xterm.js?v=<?= @filemtime(__DIR__."/assets/vendor/xterm/xterm.js") ?>"></script>
+    <script src="assets/vendor/xterm-addon-fit/addon-fit.js?v=<?= @filemtime(__DIR__."/assets/vendor/xterm-addon-fit/addon-fit.js") ?>"></script>
+    <script src="assets/app.js?v=<?= @filemtime(__DIR__.'/assets/app.js') ?>"></script>
 </body></html>

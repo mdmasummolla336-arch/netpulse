@@ -2,18 +2,21 @@
 /** Import z pôvodného Dude dude.db do appky. Zdieľané CLI aj webom (obnova/import). */
 require_once __DIR__ . '/db.php';
 require_once __DIR__ . '/DudeParser.php';
+require_once __DIR__ . '/graph_retention_lib.php';
 
 function dude_import(string $path): array {
     $pdo = db();
-    $schema = cfg('DB_DRIVER') === 'mysql' ? 'schema_mysql.sql' : 'schema_sqlite.sql';
-    foreach (array_filter(array_map('trim', explode(';', file_get_contents(__DIR__ . '/' . $schema)))) as $stmt)
-        if ($stmt !== '') $pdo->exec($stmt);
+    np_initialize_schema($pdo);
     migrate();
 
     $data = (new DudeParser($path))->extract();
     $repl = fn($t) => cfg('DB_DRIVER') === 'mysql' ? "REPLACE INTO $t" : "INSERT OR REPLACE INTO $t";
 
+    np_graph_retention_schema($pdo);
+    np_graph_permissions_schema($pdo);
     $pdo->beginTransaction();
+    $oldLinkIds = $pdo->query('SELECT id FROM map_links')->fetchAll(PDO::FETCH_COLUMN);
+    np_delete_link_graph_data($pdo, $oldLinkIds);
     foreach (['map_nodes','map_links','maps','device_types','services','probes','link_types','snmp_profiles'] as $t) { try{$pdo->exec("DELETE FROM $t");}catch(Throwable $e){} }
 
     $mapsSorted = $data['maps'];

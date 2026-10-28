@@ -7,7 +7,8 @@ CREATE TABLE IF NOT EXISTS devices(
   id BIGINT PRIMARY KEY, name VARCHAR(255), ip VARCHAR(64), dns VARCHAR(255),
   snmp_profile BIGINT, username VARCHAR(128), password VARCHAR(255), type_id BIGINT,
   status VARCHAR(16) DEFAULT 'unknown', last_check DATETIME NULL, rtt DOUBLE NULL, down_since DATETIME NULL, down_ts BIGINT NULL,
-  monitored TINYINT DEFAULT 1, notified VARCHAR(16) NULL) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+  monitored TINYINT DEFAULT 1, notified VARCHAR(16) NULL,
+  ping_fail_count INT NOT NULL DEFAULT 0) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 CREATE TABLE IF NOT EXISTS map_nodes(
   id BIGINT PRIMARY KEY, map_id BIGINT, kind VARCHAR(16) DEFAULT 'device',
   device_id BIGINT, submap_id BIGINT, x INT, y INT, image BIGINT, label TEXT, INDEX idx_nodes_map(map_id)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
@@ -46,3 +47,25 @@ CREATE TABLE IF NOT EXISTS notify_queue(
   created BIGINT, attempts INT DEFAULT 0, next_try BIGINT, INDEX idx_nq_next(next_try)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 CREATE TABLE IF NOT EXISTS login_fail(
   id BIGINT PRIMARY KEY AUTO_INCREMENT, ip VARCHAR(64), ts BIGINT, INDEX idx_lf_ip_ts(ip, ts)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+CREATE TABLE IF NOT EXISTS mx80_categories(
+  id BIGINT PRIMARY KEY AUTO_INCREMENT, parent_id BIGINT NULL, name VARCHAR(255) NOT NULL,
+  sort_order INT NOT NULL DEFAULT 0, created_at DATETIME NOT NULL, updated_at DATETIME NOT NULL,
+  UNIQUE INDEX idx_mx80_categories_name_unique(name),
+  INDEX idx_mx80_categories_parent(parent_id)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+CREATE TABLE IF NOT EXISTS mx80_interfaces(
+  device_id BIGINT NOT NULL, ifindex INT NOT NULL, description VARCHAR(255) NOT NULL,
+  ifname VARCHAR(255) NOT NULL DEFAULT '', selected INT NOT NULL DEFAULT 0, category_id BIGINT NULL,
+  discovered INT NOT NULL DEFAULT 1, last_discovery BIGINT NOT NULL,
+  PRIMARY KEY(device_id,ifindex), INDEX idx_mx80_interfaces_category(category_id,selected)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+CREATE TABLE IF NOT EXISTS mx80_counters(
+  device_id BIGINT NOT NULL, ifindex INT NOT NULL, in_oct DOUBLE NOT NULL, out_oct DOUBLE NOT NULL,
+  ctype VARCHAR(4) NOT NULL, uptime BIGINT NULL, ts_unix BIGINT NOT NULL,
+  PRIMARY KEY(device_id,ifindex)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+CREATE TABLE IF NOT EXISTS mx80_traffic_history(
+  id BIGINT PRIMARY KEY AUTO_INCREMENT, ts DATETIME NOT NULL, device_id BIGINT NOT NULL,
+  ifindex INT NOT NULL, rx_bps DOUBLE NOT NULL, tx_bps DOUBLE NOT NULL,
+  INDEX idx_mx80_history_device_if_ts(device_id,ifindex,ts)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+CREATE TABLE IF NOT EXISTS mx80_category_permissions(
+  user_id BIGINT NOT NULL, category_id BIGINT NOT NULL,
+  PRIMARY KEY(user_id,category_id)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

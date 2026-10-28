@@ -7,7 +7,7 @@ CREATE TABLE IF NOT EXISTS devices(
   id INTEGER PRIMARY KEY, name TEXT, ip TEXT, dns TEXT,
   snmp_profile INTEGER, username TEXT, password TEXT, type_id INTEGER,
   status TEXT DEFAULT 'unknown', last_check TEXT, rtt REAL, down_since TEXT, down_ts INTEGER,
-  monitored INTEGER DEFAULT 1, notified TEXT);
+  monitored INTEGER DEFAULT 1, notified TEXT, ping_fail_count INTEGER NOT NULL DEFAULT 0);
 CREATE TABLE IF NOT EXISTS map_nodes(
   id INTEGER PRIMARY KEY, map_id INTEGER, kind TEXT DEFAULT 'device',
   device_id INTEGER, submap_id INTEGER, x INTEGER, y INTEGER, image INTEGER, label TEXT);
@@ -41,6 +41,26 @@ CREATE TABLE IF NOT EXISTS notify_queue(
   id INTEGER PRIMARY KEY AUTOINCREMENT, device_id INTEGER, status TEXT, text TEXT,
   created INTEGER, attempts INTEGER DEFAULT 0, next_try INTEGER);
 CREATE TABLE IF NOT EXISTS login_fail(id INTEGER PRIMARY KEY AUTOINCREMENT, ip TEXT, ts INTEGER);
+CREATE TABLE IF NOT EXISTS mx80_categories(
+  id INTEGER PRIMARY KEY AUTOINCREMENT, parent_id INTEGER, name TEXT NOT NULL,
+  sort_order INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS mx80_interfaces(
+  device_id INTEGER NOT NULL, ifindex INTEGER NOT NULL, description TEXT NOT NULL,
+  ifname TEXT NOT NULL DEFAULT '', selected INTEGER NOT NULL DEFAULT 0, category_id INTEGER,
+  discovered INTEGER NOT NULL DEFAULT 1, last_discovery INTEGER NOT NULL,
+  PRIMARY KEY(device_id,ifindex));
+CREATE TABLE IF NOT EXISTS mx80_counters(
+  device_id INTEGER NOT NULL, ifindex INTEGER NOT NULL, in_oct DOUBLE NOT NULL, out_oct DOUBLE NOT NULL,
+  ctype VARCHAR(4) NOT NULL, uptime INTEGER, ts_unix INTEGER NOT NULL, PRIMARY KEY(device_id,ifindex));
+CREATE TABLE IF NOT EXISTS mx80_traffic_history(
+  id INTEGER PRIMARY KEY AUTOINCREMENT, ts TEXT NOT NULL, device_id INTEGER NOT NULL,
+  ifindex INTEGER NOT NULL, rx_bps DOUBLE NOT NULL, tx_bps DOUBLE NOT NULL);
+CREATE TABLE IF NOT EXISTS mx80_category_permissions(
+  user_id INTEGER NOT NULL, category_id INTEGER NOT NULL, PRIMARY KEY(user_id,category_id));
+CREATE UNIQUE INDEX IF NOT EXISTS idx_mx80_categories_name_unique ON mx80_categories(name COLLATE NOCASE);
+CREATE INDEX IF NOT EXISTS idx_mx80_categories_parent ON mx80_categories(parent_id);
+CREATE INDEX IF NOT EXISTS idx_mx80_interfaces_category ON mx80_interfaces(category_id,selected);
+CREATE INDEX IF NOT EXISTS idx_mx80_history_device_if_ts ON mx80_traffic_history(device_id,ifindex,ts);
 CREATE INDEX IF NOT EXISTS idx_nodes_map ON map_nodes(map_id);
 CREATE INDEX IF NOT EXISTS idx_links_map ON map_links(map_id);
 CREATE INDEX IF NOT EXISTS idx_svc_dev ON services(device_id);

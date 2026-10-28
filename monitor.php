@@ -15,6 +15,8 @@
 require __DIR__ . '/cli_guard.php';   // len z príkazového riadka, nie ako root
 require __DIR__ . '/db.php';
 require __DIR__ . '/telegram.php';
+require_once __DIR__ . '/snmp_lib.php';
+require_once __DIR__ . '/olt_monitor_lib.php';
 np_cli_guard();
 
 // ---- len jedna inštancia naraz (ručné spustenie popri službe by zdvojilo prácu) ----
@@ -28,6 +30,8 @@ if ($lockFh && !flock($lockFh, LOCK_EX | LOCK_NB)) {
 try { migrate(); } catch (Throwable $e) { error_log('NetPulse migrate: '.$e->getMessage()); }
 
 require __DIR__ . '/probe_lib.php';
+require_once __DIR__ . '/graph_retention_lib.php';
+require_once __DIR__ . '/optical_history_lib.php';
 
 try { $pdo = db(); } catch (Throwable $e) {
     fwrite(STDERR, "DB nedostupná – cyklus preskočený: ".$e->getMessage()."\n"); exit(0);
@@ -41,7 +45,6 @@ $histEvery = max(0, (int) setting_get('history_every', (string)(cfg('HISTORY_EVE
 $fallbackPorts = cfg('TCP_FALLBACK_PORTS') ?: [8291,80,443,22,23];
 $method   = cfg('CHECK_METHOD') ?: 'auto';
 $useIcmp  = ($method === 'icmp') || ($method === 'auto' && exec_allowed());
-$useFping = $useIcmp && cfg('USE_FPING') && fping_available();
 
 // ======================================================================
 // 0) ÚDRŽBA – vypnutý monitoring / chýbajúca IP => sivé, uzavri ich výpadky;
@@ -68,17 +71,40 @@ try {
             }
             error_log('NetPulse: uzavretých '.count($orph).' visiacich výpadkov');
         }
-        $pdo->exec("UPDATE devices SET status='unknown', rtt=NULL, down_since=NULL, down_ts=NULL, notified='up'
+        $pdo->exec("UPDATE devices SET status='unknown', rtt=NULL, down_since=NULL, down_ts=NULL, notified='up', ping_fail_count=0
                     WHERE (monitored=0 OR ip IS NULL OR ip='')
-                      AND (status<>'unknown' OR status IS NULL OR notified<>'up' OR notified IS NULL OR down_since IS NOT NULL)");
+                      AND (status<>'unknown' OR status IS NULL OR notified<>'up' OR notified IS NULL
+                           OR down_since IS NOT NULL OR ping_fail_count<>0)");
     });
 } catch (Throwable $e) { error_log('NetPulse údržba: '.$e->getMessage()); }
 
-$devs = db_retry(fn() => $pdo->query("SELECT id,name,ip,status,down_since,down_ts,notified,last_check FROM devices
-                     WHERE ip IS NOT NULL AND ip<>'' AND (monitored=1 OR monitored IS NULL)")->fetchAll());
+$devs = db_retry(fn() => $pdo->query("SELECT d.id,d.name,d.ip,d.status,d.down_since,d.down_ts,d.notified,d.last_check,
+                     d.ping_fail_count,d.type_id,dt.name AS type_name,
+                     sp.community,sp.version,sp.port,sp.sec_name,sp.auth_pass,sp.priv_pass,sp.auth_proto,sp.priv_proto
+                     FROM devices d
+                     LEFT JOIN device_types dt ON dt.id=d.type_id
+                     LEFT JOIN snmp_profiles sp ON sp.id=d.snmp_profile
+                     WHERE d.ip IS NOT NULL AND d.ip<>'' AND COALESCE(d.monitored,1)=1")->fetchAll());
 if ($devs === null) { fwrite(STDERR, "Zoznam zariadení sa nepodarilo načítať (DB zamknutá) – cyklus preskočený\n"); exit(0); }
 // prázdny zoznam: sondovanie a zápis sa preskočia, fronta správ a upratovanie bežia ďalej
 $devById = []; foreach ($devs as $d) $devById[$d['id']] = $d;
+$hasMonitoredOlt = (bool)array_filter(
+    $devs,
+    static fn(array $device): bool => np_is_olt_type((string)($device['type_name'] ?? ''))
+);
+$forceOltIcmp = $hasMonitoredOlt && exec_allowed();
+$scanIcmp = $useIcmp || $forceOltIcmp;
+$useFping = $scanIcmp && cfg('USE_FPING') && fping_available();
+$pingBinaryAvailable = false;
+if ($scanIcmp && !$useFping && exec_allowed()) {
+    $pingCommand = [];
+    @exec('command -v ping 2>/dev/null', $pingCommand, $pingCommandStatus);
+    $pingBinaryAvailable = $pingCommandStatus === 0 && !empty($pingCommand);
+}
+$icmpAvailable = $useFping || $pingBinaryAvailable;
+if ($method === 'icmp' && !$icmpAvailable) {
+    error_log('NetPulse monitor: ICMP mode is configured, but neither fping nor ping is available; device status will be preserved.');
+}
 $svcRows = db_retry(fn() => $pdo->query("SELECT id,device_id,ptype,port FROM services WHERE enabled=1 OR enabled IS NULL")->fetchAll()) ?: [];
 
 // ======================================================================
@@ -91,17 +117,27 @@ $hosts = [];
 foreach ($devs as $d) {
     $ok = np_valid_host($d['ip']);
     if (!$ok) $bad++;
-    $res[$d['id']] = ['ping' => false, 'reach' => false, 'rtt' => null, 'valid' => $ok];
-    if ($ok) $hosts[$d['ip']] = true;
+    $res[$d['id']] = [
+        'ping' => false, 'ping_checked' => false, 'reach' => false, 'rtt' => null, 'valid' => $ok
+    ];
+    if ($ok && ($useIcmp || ($forceOltIcmp && np_is_olt_type((string)($d['type_name'] ?? ''))))) {
+        $hosts[$d['ip']] = true;
+    }
 }
 if ($useFping) {
     $alive = fping_batch(array_keys($hosts), max(300, $pt * 1000));
-    foreach ($devs as $d) if (array_key_exists($d['ip'], $alive)) {
-        $res[$d['id']]['ping'] = $res[$d['id']]['reach'] = true; $res[$d['id']]['rtt'] = $alive[$d['ip']];
-    }
-} elseif ($useIcmp) {                                  // bez fping: po jednom (pomalšie)
     foreach ($devs as $d) {
-        if (!$res[$d['id']]['valid']) continue;
+        if (!$res[$d['id']]['valid'] || !isset($hosts[$d['ip']])) continue;
+        $res[$d['id']]['ping_checked'] = true;
+        if (array_key_exists($d['ip'], $alive)) {
+            $res[$d['id']]['ping'] = $res[$d['id']]['reach'] = true;
+            $res[$d['id']]['rtt'] = $alive[$d['ip']];
+        }
+    }
+} elseif ($useIcmp && $pingBinaryAvailable) {          // bez fping: po jednom (pomalšie)
+    foreach ($devs as $d) {
+        if (!$res[$d['id']]['valid'] || !isset($hosts[$d['ip']])) continue;
+        $res[$d['id']]['ping_checked'] = true;
         $o = []; @exec('ping -c 1 -W ' . $pt . ' ' . escapeshellarg($d['ip']) . ' 2>/dev/null', $o, $rc);
         if ($rc === 0) {
             $res[$d['id']]['ping'] = $res[$d['id']]['reach'] = true;
@@ -113,11 +149,18 @@ if ($useFping) {
 $svcUp = []; $tcpT = [];
 foreach ($svcRows as $sv) {
     $d = $devById[$sv['device_id']] ?? null;
-    if (!$d || !$res[$d['id']]['valid']) continue;
+    if (!$d || !$res[$d['id']]['valid'] || np_is_olt_type((string)($d['type_name'] ?? ''))) continue;
     switch ($sv['ptype']) {
         case 'tcp':  $tcpT['s' . $sv['id']] = [$d['ip'], (int)$sv['port']]; break;
         case 'dns':  $svcUp[$sv['id']] = dns_check($d['ip']); break;
-        case 'snmp': $svcUp[$sv['id']] = snmp_check($d['ip'], (int)$sv['port'] ?: 161); break;
+        case 'snmp':
+            $prof = [
+                'community'=>$d['community'],'version'=>$d['version'],'port'=>$d['port'],
+                'sec_name'=>$d['sec_name'],'auth_pass'=>$d['auth_pass'],'priv_pass'=>$d['priv_pass'],
+                'auth_proto'=>$d['auth_proto'],'priv_proto'=>$d['priv_proto']
+            ];
+            $svcUp[$sv['id']] = snmp_check($d['ip'], (int)$sv['port'] ?: (int)($d['port'] ?? 161), $prof);
+            break;
         case 'icmp': default: $svcUp[$sv['id']] = $res[$d['id']]['ping'];
     }
 }
@@ -134,7 +177,8 @@ foreach ($svcRows as $sv) {
 // posledná záchrana – záložné porty (winbox/web…), všetky nedostupné zariadenia naraz
 if ($method === 'auto') {
     $fb = [];
-    foreach ($devs as $d) if (!$res[$d['id']]['reach'] && $res[$d['id']]['valid'])
+    foreach ($devs as $d) if (!np_is_olt_type((string)($d['type_name'] ?? '')) &&
+                              !$res[$d['id']]['reach'] && $res[$d['id']]['valid'])
         foreach ($fallbackPorts as $p) $fb[$d['id'] . ':' . (int)$p] = [$d['ip'], (int)$p];
     foreach (($fb ? tcp_probe_batch($fb, $tcpTo) : []) as $k => $ms) {
         $id = (int) strtok($k, ':');
@@ -151,12 +195,13 @@ $tr = ['down' => 0, 'up' => 0];
 $written = !$devs;
 if ($devs) try {
     $written = db_tx(function (PDO $pdo) use ($devs, $res, $svcRows, $svcUp, $devById, $now, $nowTs,
-                                             $downAfter, $histEvery, &$tr) {
+                                             $downAfter, $histEvery, $method, $icmpAvailable, &$tr) {
         $tr = ['down' => 0, 'up' => 0];                // pri opakovaní transakcie začni odznova
         // Podmienka zabráni zápisu výsledku, ak admin počas sondovania zariadeniu vypol monitoring,
         // zmenil IP alebo ho zmazal – inak by vznikla falošná udalosť a správa do Telegramu.
-        $updDev  = $pdo->prepare('UPDATE devices SET status=?,rtt=?,last_check=?,down_since=?,down_ts=?,notified=?
-                                  WHERE id=? AND ip=? AND COALESCE(monitored,1)=1');
+        $updDev  = $pdo->prepare('UPDATE devices SET status=?,rtt=?,last_check=?,down_since=?,down_ts=?,notified=?,ping_fail_count=?
+                                  WHERE id=? AND ip=? AND COALESCE(monitored,1)=1
+                                    AND ((type_id=?) OR (type_id IS NULL AND ? IS NULL))');
         $updSvc  = $pdo->prepare('UPDATE services SET status=?,last_check=? WHERE id=?');
         $hist    = $pdo->prepare('INSERT INTO status_history(device_id,ts,status,rtt) VALUES(?,?,?,?)');
         $evt     = $pdo->prepare('INSERT INTO events(ts,device_id,device_name,ip,status,message) VALUES(?,?,?,?,?,?)');
@@ -165,20 +210,43 @@ if ($devs) try {
         $closeOut= $pdo->prepare('UPDATE outages SET ended=?,duration=? WHERE id=?');
 
         foreach ($devs as $d) {
+            if ($method === 'icmp' && !$icmpAvailable) continue;
             $r = $res[$d['id']]; $ip = $d['ip']; $prev = $d['status'];
             // posledný zaznamenaný prechod (pre staré DB bez stĺpca: podľa stavu)
             $notified  = !empty($d['notified']) ? $d['notified'] : ($prev === 'down' ? 'down' : 'up');
             $downSince = $d['down_since'];
             $downTs    = np_epoch($d['down_ts'], $d['down_since']);   // epoch – odolné voči zmene času
-            if ($r['reach']) { $status = 'up'; $downSince = null; $downTs = null; }
-            else {
+            $pingFailCount = (int)($d['ping_fail_count'] ?? 0);
+            $isOlt = np_is_olt_type((string)($d['type_name'] ?? ''));
+            if ($isOlt) {
+                $oltStatus = np_olt_icmp_transition(
+                    (string)$prev,
+                    $pingFailCount,
+                    $downSince === null ? null : (string)$downSince,
+                    $downTs,
+                    (bool)$r['ping_checked'],
+                    (bool)$r['ping'],
+                    $now,
+                    $nowTs
+                );
+                if (!$oltStatus['valid']) continue;
+                $status = $oltStatus['status'];
+                $pingFailCount = $oltStatus['ping_fail_count'];
+                $downSince = $oltStatus['down_since'];
+                $downTs = $oltStatus['down_ts'];
+            } elseif ($r['reach']) {
+                $status = 'up'; $downSince = null; $downTs = null;
+            } else {
                 if (!$downTs) { $downTs = $nowTs; $downSince = $now; }
                 $status = (($nowTs - $downTs) >= $downAfter) ? 'down' : 'pending';
             }
             $doDown = ($status === 'down' && $notified !== 'down');
             $doUp   = ($status === 'up'   && $notified === 'down');
             $newN   = $doDown ? 'down' : ($doUp ? 'up' : $notified);
-            $updDev->execute([$status, $r['rtt'], $now, $downSince, $downTs, $newN, $d['id'], $ip]);
+            $updDev->execute([
+                $status, $r['rtt'], $now, $downSince, $downTs, $newN, $pingFailCount,
+                $d['id'], $ip, $d['type_id'], $d['type_id']
+            ]);
             if ($updDev->rowCount() === 0) continue;          // medzitým zmenené – výsledok neplatí
 
             // história: zmena stavu vždy, odozva len vzorkovaná (inak DB rastie o 500k riadkov denne)
@@ -192,6 +260,8 @@ if ($devs) try {
                 $openOut->execute([$d['id']]); $has = (bool)$openOut->fetch(); $openOut->closeCursor();
                 if (!$has) $newOut->execute([$d['id'], 'ping', $downSince ?: $now, $downTs ?: $nowTs]);
                 tg_enqueue($pdo, (int)$d['id'], (string)$d['name'], $ip, 'down', $now, $nowTs);
+                try { np_sms_enqueue($pdo, (int)$d['id'], (string)$d['name'], $ip, 'down', $now, $nowTs); }
+                catch (Throwable $e) { error_log('NetPulse SMS enqueue: '.$e->getMessage()); }
             }
             if ($doUp) {
                 $tr['up']++;
@@ -202,10 +272,13 @@ if ($devs) try {
                     $closeOut->execute([$now, $st ? max(0, $nowTs - $st) : null, $o['id']]);
                 }
                 tg_enqueue($pdo, (int)$d['id'], (string)$d['name'], $ip, 'up', $now, $nowTs);
+                try { np_sms_enqueue($pdo, (int)$d['id'], (string)$d['name'], $ip, 'up', $now, $nowTs); }
+                catch (Throwable $e) { error_log('NetPulse SMS enqueue: '.$e->getMessage()); }
             }
         }
         foreach ($svcRows as $sv) {
             if (!isset($devById[$sv['device_id']]) || !array_key_exists($sv['id'], $svcUp)) continue;
+            if (np_is_olt_type((string)($devById[$sv['device_id']]['type_name'] ?? ''))) continue;
             $updSvc->execute([$svcUp[$sv['id']] ? 'up' : 'down', $now, $sv['id']]);
         }
     });
@@ -215,10 +288,21 @@ if ($devs) try {
 }
 
 // ======================================================================
+// Automatic SNMP port discovery, status events and traffic history.
+try {
+    require_once __DIR__ . '/port_monitor_lib.php';
+    $portResult = np_port_poll($pdo);
+} catch (Throwable $e) {
+    error_log('NetPulse port monitor: ' . $e->getMessage());
+}
+try { op_history_schema($pdo); }
+catch (Throwable $e) { error_log('NetPulse optical schema: ' . $e->getMessage()); }
+
 // 3) DORUČENIE Telegram správ z fronty
 // ======================================================================
 $tg = [0, 0, 0];
 try { $tg = tg_flush($pdo); } catch (Throwable $e) { error_log('NetPulse Telegram: '.$e->getMessage()); }
+try { $sms = np_sms_flush($pdo, 3); } catch (Throwable $e) { error_log('NetPulse SMS flush: '.$e->getMessage()); }
 
 // ======================================================================
 // 4) UPRATOVANIE – každých 10 min, s časovým stropom (nesmie brzdiť monitoring)
@@ -228,6 +312,13 @@ try {
         setting_set('last_purge_hist', (string)$nowTs);
         np_purge($pdo, 'status_history', date('Y-m-d H:i:s', $nowTs - $histDays * 86400), 3.0);
         np_purge($pdo, 'events',         date('Y-m-d H:i:s', $nowTs - 365 * 86400), 1.0);
+        try {
+            $trafficDays = max(1, (int)setting_get('traffic_days', (string)(cfg('TRAFFIC_DAYS') ?: 90)));
+            $opticalDays = max(1, (int)(cfg('OPTICAL_HISTORY_DAYS') ?: 30));
+            np_graph_retention_cleanup($pdo, 2.0, $trafficDays, $opticalDays);
+        } catch (Throwable $e) {
+            error_log('NetPulse graph retention: ' . $e->getMessage());
+        }
         $sdir = __DIR__ . '/data/sessions';            // PHP vo vlastnom priečinku sessions sám nemaže
         if (is_dir($sdir)) {
             $cutS = $nowTs - 31 * 86400; $stop = microtime(true) + 1.0;

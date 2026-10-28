@@ -73,7 +73,11 @@ function dns_check(string $host): bool {
     @exec('nslookup -timeout=1 -retry=1 www.mikrotik.com ' . escapeshellarg($host) . ' 2>/dev/null', $o, $rc);
     return $rc === 0;
 }
-function snmp_check(string $host, int $port): bool {
-    if (function_exists('snmpget')) { $r = @snmpget("$host:$port", 'public', '1.3.6.1.2.1.1.1.0', 1000000, 1); return $r !== false; }
-    return false;
+function snmp_check(string $host, int $port, array $profile = []): bool {
+    if (!isset($profile['version']) || $profile['version'] === null) {
+        $profile = ['version'=>1,'community'=>'public'];
+    }
+    $profile['port'] = $port >= 1 && $port <= 65535 ? $port : 161;
+    $values = snmp_get($host, $profile, ['1.3.6.1.2.1.1.1.0']);
+    return ($values[0] ?? null) !== null;
 }

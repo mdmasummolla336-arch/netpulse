@@ -1,0 +1,2 @@
+asyncssh>=2.21,<3
+websockets>=14,<16

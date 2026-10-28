@@ -17,6 +17,9 @@
  */
 require __DIR__ . '/cli_guard.php';   // len z príkazového riadka, nie ako root
 require __DIR__ . '/db.php';
+require_once __DIR__ . '/graph_retention_lib.php';
+require_once __DIR__ . '/port_monitor_lib.php';
+require_once __DIR__ . '/optical_history_lib.php';
 np_cli_guard();
 try { migrate(); } catch (Throwable $e) {}
 
@@ -32,9 +35,12 @@ for ($i = 0; $i < count($args); $i++) {
 }
 $days  = $daysArg  ?? max(1, (int) setting_get('history_days', (string)(cfg('HISTORY_DAYS') ?: 14)));
 $tDays = $tDaysArg ?? max(1, (int) setting_get('traffic_days', (string)(cfg('TRAFFIC_DAYS') ?: 90)));
+$opticalDays = max(1, (int)(cfg('OPTICAL_HISTORY_DAYS') ?: 30));
 
 $pdo   = db();
 $mysql = np_is_mysql();
+np_port_schema($pdo);
+op_history_schema($pdo);
 
 // --- zariadenia mimo mapy:  php cleanup.php --siroty  (výpis)  /  --siroty --run  (odstránenie) ---
 if (in_array('--siroty', $args, true)) {
@@ -72,10 +78,17 @@ $cnt = function (string $t, string $c) use ($pdo) {
     try { $st = $pdo->prepare("SELECT COUNT(*) FROM $t WHERE ts < ?"); $st->execute([$c]); return (int)$st->fetchColumn(); }
     catch (Throwable $e) { return 0; }
 };
-$old = $cnt('status_history', $cut); $oldT = $cnt('traffic_history', $tCut);
+$old = $cnt('status_history', $cut);
+$retentionCounts = np_graph_retention_counts($pdo, $tDays, $opticalDays);
+$oldT = is_int($retentionCounts['traffic_history'] ?? null)
+    ? $retentionCounts['traffic_history'] : $cnt('traffic_history', $tCut);
+$oldOpt = is_int($retentionCounts['optical_power_history'] ?? null)
+    ? $retentionCounts['optical_power_history'] : 0;
+$optCut = gmdate('Y-m-d\TH:i:s\Z', time() - $opticalDays * 86400);
 echo "\n  na zmazanie:\n";
 printf("  %14s riadkov  status_history  (starší ako %d dní, pred %s)\n", number_format($old,0,',',' '), $days, $cut);
 printf("  %14s riadkov  traffic_history (starší ako %d dní, pred %s)\n", number_format($oldT,0,',',' '), $tDays, $tCut);
+printf("  %14s riadkov  optical_power_history (starší ako %d dní, pred %s)\n", number_format($oldOpt,0,',',' '), $opticalDays, $optCut);
 
 if (!$mysql && is_file($path) && !empty($free) && $free < filesize($path) * 1.1) {
     echo "\n  !! VACUUM potrebuje dočasne asi rovnako miesta ako má databáza.\n";
@@ -103,7 +116,14 @@ $purge = function (string $t, string $c, string $label) use ($pdo) {
     echo "  zmazaných z $t: " . number_format($del,0,',',' ') . "            \n";
 };
 $purge('status_history',  $cut,  'status_history');
-$purge('traffic_history', $tCut, 'traffic_history');
+echo "\n== Retention toku (obľúbené grafy zostávajú) ==\n";
+do {
+    $deleted = np_graph_retention_cleanup($pdo, 5.0, $tDays, $opticalDays);
+    $total = array_sum($deleted);
+    foreach ($deleted as $table=>$count) {
+        if ($count) echo "  $table: " . number_format($count,0,',',' ') . "\n";
+    }
+} while ($total > 0);
 // len hodnoty zadané v príkazovom riadku sa uložia do Nastavení
 try {
     if ($daysArg  !== null) setting_set('history_days', (string)$days);

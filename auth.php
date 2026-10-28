@@ -1,5 +1,5 @@
 <?php
-/** Session autentifikácia + role (administrator > admin > user). */
+/** Session autentifikácia + role (administrator > admin > employee/user). */
 require_once __DIR__ . '/db.php';
 
 const REMEMBER_SECONDS = 60 * 60 * 24 * 30; // „Zapamätať prihlásenie" = 30 dní
@@ -92,6 +92,22 @@ function try_login(string $u, string $p, bool $remember = false): bool {
     $st->execute([$u]);
     $row = $st->fetch();
     if ($row && password_verify($p, $row['pass_hash'])) {
+        $pdo = db();
+        try {
+            $pdo->prepare('INSERT INTO login_history(username,logged_at) VALUES(?,?)')
+                ->execute([$row['username'], time()]);
+        } catch (Throwable $e) {
+            error_log('NetPulse login history: '.$e->getMessage());
+            return false;
+        }
+        try {
+            $cutoff = $pdo->query('SELECT id FROM login_history ORDER BY id DESC LIMIT 1 OFFSET 499')->fetchColumn();
+            if ($cutoff !== false) {
+                $pdo->prepare('DELETE FROM login_history WHERE id < ?')->execute([$cutoff]);
+            }
+        } catch (Throwable $e) {
+            error_log('NetPulse login history retention: '.$e->getMessage());
+        }
         session_regenerate_id(true); // proti session fixation
         $_SESSION['uid'] = $row['id'];
         $_SESSION['user'] = $row['username'];
@@ -123,7 +139,7 @@ function logout(): void {
 function current_user(): ?string { return $_SESSION['user'] ?? null; }
 function current_uid(): ?int { return $_SESSION['uid'] ?? null; }
 function current_role(): string { return $_SESSION['role'] ?? 'user'; }
-function role_rank(?string $r): int { return ['user'=>1,'admin'=>2,'administrator'=>3][$r] ?? 1; }
+function role_rank(?string $r): int { return ['user'=>1,'employee'=>1,'admin'=>2,'administrator'=>3][$r] ?? 1; }
 function has_role(string $min): bool { return role_rank(current_role()) >= role_rank($min); }
 
 function require_login(bool $api = false): void {

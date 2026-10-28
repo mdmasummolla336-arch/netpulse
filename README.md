@@ -32,19 +32,25 @@ It can **import an existing `The Dude` database** (`dude.db`) so you don't have 
 
 - **Interactive maps** — devices, links and sub-maps rendered as SVG, faithfully following the Dude layout (positions, link styles: solid / dotted / dashed, thickness). Auto-sized sub-map circles.
 - **Import from The Dude** — one-click import from an existing `dude.db` (maps, devices, device types, icons, probes, services, links, SNMP profiles). Maps keep their original Dude order.
-- **Live monitoring** — three-state status (up / pending / down) like Dude. Uses `fping` for fast parallel ICMP plus **parallel TCP checks** (services and fallback ports), so even a large outage with dozens of unreachable devices is checked within a couple of seconds — and it still works on shared hosting where ICMP/`exec` is blocked.
+- **Live monitoring** — three-state status (up / pending / down) like Dude. Uses `fping` for fast parallel ICMP plus **parallel TCP checks** (services and fallback ports) for non-OLT devices. Selected OLT devices use ICMP only and are marked down after three consecutive failed ping checks; other service checks never override OLT reachability. If ICMP-only mode is selected but neither `fping` nor `ping` is available, the monitor preserves existing device status and logs the missing dependency instead of reporting a false outage. Devices or services with monitoring disabled appear as unknown in status views.
 - **Real per-interface traffic** — SNMP polling of `ifHCInOctets`/`ifHCOutOctets` (64-bit, with 32-bit fallback) turned into live Rx/Tx bps on each link.
+- **Core Router MX80 categories** — a dedicated section for device `1000004` (`10.255.240.9`) discovers names and descriptions from `ifName` and `ifAlias`, exposes only non-empty descriptions, and polls only administrator-selected interfaces. It uses SNMPv1 for this module without changing the shared SNMP profile. Admins can create nested categories, assign interfaces, and grant individual users category access; the API enforces those grants for graph lists and history. The MX80 is excluded from generic Ports, Optical/SFP and legacy graph sources; existing history is retained.
+- **Port-down whistle alerts** — the open NetPulse page plays a whistle when a monitored port changes to down. The sound toggle is saved in the browser; browser audio rules may require one click or key press after opening the page.
+- **OLT monitoring policy** — only OLT devices enabled with **Monitor device** are polled, using ICMP only. OLTs are excluded from SNMP traffic/interface polling, optical polling, manual SNMP interface discovery, and generic interface graphs. Existing OLT records, map links, and historical data are retained; existing Map nodes and Dashboard entries continue to show the device's ICMP status. Other device types retain their existing polling behavior.
+- **Optical/SFP power history** — SNMP Rx/Tx optical power templates for Cisco Nexus, MikroTik RouterOS, BDCOM and VSOL V1600D4-DP. BDCOM reads the `ifSfpParamTable` (`1.3.6.1.4.1.3320.9.63.1.7.1`) up to four lanes per port; readings are hundredths of dBm and `-65535` means unavailable. VSOL reads its four GE interface power columns as dBm strings and excludes PON interfaces.
 - **Utilization-based link colors** — link color shifts across a full spectrum based on interface utilization %, visible even at low load.
-- **Graphs** — traffic history recorded over time per link, with a dedicated *Graphs* section.
+- **Cacti-style graphs** — searchable SNMP map-link and discovered-port sources, multi-card Rx/Tx charts, hour/day/week/month/year ranges, rate summaries, hover details, favorites and per-user graph permissions. MX80 category graphs are managed separately in Core Router MX80.
 - **Telegram notifications** — native PHP (no `wget`/`curl` shell-out), fully configurable in the UI. Alerts are queued: if Telegram is unreachable they are retried with back-off instead of being lost, and a down/up pair that piles up while Telegram is offline is merged into one *"was down from X to Y"* message.
-- **User roles** — `administrator` (full access incl. backup/restore & resetting others' passwords), `admin` (user management), `user` (read-only + change own password).
+- **User roles** — `administrator` (full access incl. backup/restore & resetting others' passwords), `admin` (user management), `employee` (map dashboard and explicitly granted MX80 categories, without live map-link traffic values), `user` (Graphs and explicitly granted MX80 categories + change own password).
+- **Login history** — admins can review the 200 most recent successful logins under Settings -> Users; only usernames and timestamps are stored, with history capped at 500 entries.
 - **Editing from the web** — add/edit/delete devices, links (line type via dialog) and maps directly in the browser.
+- **Admin SSH terminal** — `admin` and `administrator` users can open a device shell from anywhere through the NetPulse HTTPS site and its WSS reverse proxy. The WebSocket bridge stays loopback-only; device credentials remain server-side and SSH host keys must be trusted in `known_hosts`.
 - **Backup / restore** and re-import from the Settings screen.
 - **Multi-language** — UI available in English, Slovak, Czech, German, Polish and Hungarian; pick your language on the login screen or later in Settings -> Appearance (saved in your browser).
 - **Automatic time zone** — detected from the server on first run, overridable in Settings -> Appearance. Event times and Telegram messages always match your local clock.
 - **Self-maintaining database** — status and traffic history are sampled and pruned automatically, so the database stays small and fast no matter how long NetPulse runs.
 - **Crash-resistant workers** — each monitoring cycle probes the whole network first and then records all results in one short transaction, so a busy database never leaves half-written state, duplicate events or dangling outages.
-- **Modern UI** — light / dark / auto themes, responsive layout with touch controls, sortable tables with sticky headers, clean SVG device icons.
+- **Modern UI** — consistent dark theme, responsive layout with touch controls, sortable tables with sticky headers, clean SVG device icons.
 
 ## Requirements
 
@@ -52,7 +58,7 @@ It can **import an existing `The Dude` database** (`dude.db`) so you don't have 
 - A web server — **nginx + php-fpm** recommended (Apache + mod_php works too)
 - For live **ICMP** status: **`fping`** (`apt install fping`) and PHP's `exec()` must be enabled (not listed in `disable_functions`). Without it, NetPulse automatically falls back to TCP-connect checks, so it still works on locked-down/shared hosting.
 - For **SNMP traffic**: the **net-snmp** CLI tools **`snmpget` / `snmpwalk`** (`apt install snmp`) *or* the PHP `snmp` extension
-- SQLite works out of the box (no DB server); MySQL 8 / MariaDB 10.6+ is optional for larger / multi-user setups. For MySQL create the database with `CHARACTER SET utf8mb4` and set `DB_DRIVER` directly in `config.php` (PHP-FPM clears environment variables by default). Importing from The Dude needs `pdo_sqlite` either way, because `dude.db` itself is SQLite.
+- SQLite works out of the box (no DB server); MySQL 8 / MariaDB 10.6+ (including MariaDB 11.8) is optional for larger / multi-user setups. For MySQL create a separate database with `CHARACTER SET utf8mb4` and set `DB_DRIVER` to `mysql` directly in `config.php` (PHP-FPM clears environment variables by default). Changing the driver only points NetPulse at that separate database: it does not migrate, copy, or delete the existing SQLite database. Importing from The Dude needs `pdo_sqlite` either way, because `dude.db` itself is SQLite.
 
 On Debian/Ubuntu a typical install:
 
@@ -60,6 +66,10 @@ On Debian/Ubuntu a typical install:
 sudo apt install php-cli php-fpm php-sqlite3 fping snmp
 # optional: php-mysql (for MySQL) ,  php-snmp (instead of the net-snmp CLI tools)
 ```
+
+### MariaDB setup without changing SQLite
+
+Install `mariadb-server` and `php-mysql`, create a new empty database and a dedicated application user, and grant that user access only to the new database. Then set `DB_DRIVER` to `mysql` and enter its host, database, user, and password in `config.php`. NetPulse creates its base schema automatically on first startup; no Dude import is required. Keep `SQLITE_PATH` unchanged: the existing SQLite file is left in place and is not migrated automatically. To return to the original database, set `DB_DRIVER` back to `sqlite`. Test schema initialization with `php tests/schema_smoke.php` and an isolated, empty database; never point that test at production data.
 
 ## Quick start (SQLite)
 
@@ -76,6 +86,8 @@ php -S 0.0.0.0:8080
 
 Open `http://localhost:8080/`. On first run the schema is created automatically.
 Default login is **admin / admin** — **change the password immediately** in Settings.
+
+The PHP development server does not provide the WebSocket reverse proxy required by the browser SSH terminal. To use SSH, configure the separate SSH bridge service and a `/ssh-ws/` reverse-proxy route as described in [Production (nginx + php-fpm)](#production-nginx--php-fpm).
 
 ### Import your existing Dude database
 
@@ -165,6 +177,82 @@ sudo systemctl daemon-reload
 sudo systemctl enable --now netpulse-monitor netpulse-snmp
 ```
 
+### Browser SSH terminal (admin and administrator roles)
+
+The SSH terminal needs a separate Python service. Both `admin` and `administrator` roles can use it. To connect while away from the trusted LAN, publish NetPulse behind a publicly reachable domain with valid HTTPS, then proxy `/ssh-ws/` as WSS on that same HTTPS site. The SSH service itself must continue listening only on loopback; never open its port (default `8765`) on the firewall or expose it directly to the network.
+
+Install the service dependencies in a dedicated virtual environment:
+
+```bash
+sudo apt install python3-venv
+cd /home/youruser/netpulse
+python3 -m venv .venv-ssh
+.venv-ssh/bin/pip install -r requirements-ssh.txt
+```
+
+Provision the same random secret (at least 32 characters) to PHP-FPM as `NETPULSE_SSH_BRIDGE_TOKEN` and to the SSH service environment file. Set `NETPULSE_SSH_API_URL` to this installation's `api.php?action=ssh_credentials` URL, `NETPULSE_SSH_ALLOWED_ORIGINS` to the exact browser origin (scheme and hostname, with a port only if non-standard), and `NETPULSE_SSH_KNOWN_HOSTS` to a readable file containing device host keys trusted out-of-band.
+
+For remote access over the public Internet, use the exact HTTPS address that you open in the browser in both settings. A domain name is usually easiest:
+
+```ini
+NETPULSE_SSH_API_URL=https://netpulse.example.com/api.php?action=ssh_credentials
+NETPULSE_SSH_ALLOWED_ORIGINS=https://netpulse.example.com
+NETPULSE_SSH_KNOWN_HOSTS=/home/youruser/.ssh/known_hosts
+```
+
+If you use port forwarding and open NetPulse by its public IP instead of a domain, HTTPS must have a valid certificate whose subject alternative name includes that exact IP address. For example, if the public IP is `203.0.113.10`:
+
+```ini
+NETPULSE_SSH_API_URL=https://203.0.113.10/api.php?action=ssh_credentials
+NETPULSE_SSH_ALLOWED_ORIGINS=https://203.0.113.10
+NETPULSE_SSH_KNOWN_HOSTS=/home/youruser/.ssh/known_hosts
+```
+
+Forward TCP port `443` on the router to port `443` on the NetPulse/nginx server, and configure nginx to serve both the web app and `/ssh-ws/` over HTTPS. If you expose a non-standard public port, include it in both URLs/origins (for example, `https://203.0.113.10:8443`) and forward that port to nginx. Reserve the server's private LAN IP so the forwarding target does not change. Do not forward the SSH bridge port (`8765`) or expose it outside loopback. If you cannot get a trusted certificate for the public IP, use a domain/DDNS name pointed at that IP and a certificate for the domain instead; do not use public HTTP for admin access.
+
+The public address/domain must reach the NetPulse server, HTTPS must be working, and the API URL must be reachable by the SSH bridge service without redirecting. Keep SSH devices reachable from the server as required. For a private-IP HTTP installation restricted to a trusted LAN or VPN, use the same private address and port as the browser, for example:
+
+```ini
+NETPULSE_SSH_API_URL=http://10.99.99.19:8080/api.php?action=ssh_credentials
+NETPULSE_SSH_ALLOWED_ORIGINS=http://10.99.99.19:8080
+NETPULSE_SSH_KNOWN_HOSTS=/home/youruser/.ssh/known_hosts
+```
+
+Replace the example address and port with your NetPulse server's actual private IP and HTTP port. Plain HTTP is accepted only for loopback and RFC1918/IPv6 unique-local IP addresses; never use HTTP for Internet access because session cookies, terminal contents, and bridge credentials could be intercepted. The browser origin must match `NETPULSE_SSH_ALLOWED_ORIGINS` exactly. The bridge refuses API redirects so session cookies and the bridge secret are not forwarded to another host. Never disable SSH host-key checking or accept unknown keys automatically. Protect the environment file so only root and the required service account can read it. Use strong, unique NetPulse admin passwords and, if available at the HTTPS reverse proxy, additional MFA.
+
+Example systemd unit:
+
+```ini
+# /etc/systemd/system/netpulse-ssh.service
+[Unit]
+Description=NetPulse SSH WebSocket bridge
+After=network.target
+[Service]
+User=www-data
+WorkingDirectory=/home/youruser/netpulse
+EnvironmentFile=/etc/netpulse/ssh-bridge.env
+ExecStart=/home/youruser/netpulse/.venv-ssh/bin/python ssh_terminal_server.py
+Restart=on-failure
+NoNewPrivileges=true
+PrivateTmp=true
+[Install]
+WantedBy=multi-user.target
+```
+
+Add this WebSocket reverse-proxy location to the same nginx HTTPS `server` block that serves the public NetPulse hostname, before the PHP location:
+
+```nginx
+location ^~ /ssh-ws/ {
+    proxy_pass http://127.0.0.1:8765/;
+    proxy_http_version 1.1;
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection "upgrade";
+    proxy_read_timeout 1800s;
+}
+```
+
+Ensure PHP-FPM receives `NETPULSE_SSH_BRIDGE_TOKEN` from a protected environment source, then enable the service with `sudo systemctl enable --now netpulse-ssh`. The web interface does not expose device passwords or private keys. Device host keys must already be trusted in the configured `known_hosts` file; this guide does not claim an SSH connection succeeds until a device is actually tested.
+
 > Note: `fping` needs raw-socket rights. The Debian `fping` package ships with the needed capability by default; if ICMP still fails, NetPulse falls back to TCP checks automatically.
 
 Configuration lives in `config.php` — DB driver, MySQL credentials (if used), check method (`auto` / `tcp` / `icmp`) and the down-after grace period. Telegram, SNMP profiles and the poll interval are set in the **Settings** screen.
@@ -198,11 +286,11 @@ Database migrations run automatically on the first request or monitoring cycle �
 
 ## Maintenance
 
-NetPulse prunes its own history every hour, so under normal operation there is nothing to do. Two things are worth knowing.
+NetPulse prunes its own history during monitoring cycles, so under normal operation there is nothing to do. Traffic-history retention uses the configured `TRAFFIC_DAYS` value and preserves favorite graph data. Two things are worth knowing.
 
 **Why pruning matters.** Every monitoring cycle writes one row per device. On a 150-device network checked every 25 seconds that is roughly half a million rows a day, so without retention the database grows into gigabytes and queries slow down until writes start timing out. Defaults keep 14 days of status history (sampled once a minute) and 90 days of traffic history; tune them in Settings -> Traffic measurement.
 
-**One-time cleanup.** If you are upgrading from an older version whose database has already grown, run the bundled maintenance script. It deletes expired history, creates any missing indexes, removes stale session files and compacts the file with `VACUUM`:
+**One-time cleanup.** If you are upgrading from an older version whose database has already grown, run the bundled maintenance script. It deletes expired history (without deleting favorite graph history), creates any missing indexes, removes stale session files and, for SQLite, compacts the file with `VACUUM`:
 
 ```bash
 # dry run - shows row counts and what would be deleted, changes nothing
@@ -238,6 +326,10 @@ php diag2.php 2026-09-19        # outage detection lag and gaps in monitoring fo
 
 **Monitoring cycle is slow.** Time it with `time php monitor.php`. Install `fping` if it is missing — without it devices are pinged one at a time. Each unreachable device also costs one second per port in `TCP_FALLBACK_PORTS`, so trimming that list speeds up large outages.
 
+## Schema smoke test
+
+Run `php tests/schema_smoke.php` to create a temporary empty SQLite database, initialize the complete base schema twice, and run core queries plus graph, port-monitoring, optical-history and SMS smoke checks. To also test MySQL/MariaDB, set `NETPULSE_TEST_MYSQL_DSN`, `NETPULSE_TEST_MYSQL_USER`, and `NETPULSE_TEST_MYSQL_PASS` for a separate empty test database; the test refuses a database that already contains tables and drops only the tables it creates there after the test. The test avoids opening the configured production SQLite database. The MySQL check requires `pdo_mysql`.
+
 ## Languages
 
 The interface ships in **English, Slovencina, Cestina, Deutsch, Polski and Magyar**. Translations live in `assets/i18n.js` — add a language by copying one of the dictionaries and translating the values. Contributions welcome.
@@ -256,6 +348,7 @@ import_dude.php    CLI import entry point
 monitor.php        Availability monitoring (one pass per run)
 snmp_lib.php       SNMP get/walk helpers (v1/v2c/v3)
 snmp_poll.php      SNMP traffic poller (loop worker)
+mx80_lib.php       Dedicated MX80 category, SNMP traffic, graph and permission logic
 telegram.php       Native Telegram sender
 db.php / config.php  PDO layer, retry-on-busy helpers & configuration
 probe_lib.php      Availability probes (fping, parallel TCP) shared by the monitor and "Test now"
@@ -274,7 +367,7 @@ schema_*.sql       SQLite / MySQL schema
 - Database backups (which contain password hashes, device credentials, SNMP secrets and the Telegram token) can only be downloaded by an `administrator`. SNMP communities and v3 passwords are likewise visible to administrators only.
 - All state-changing API calls require `POST` with a custom header, so a foreign website cannot trigger them through a logged-in browser (CSRF).
 - SNMP community strings / v3 credentials and Telegram tokens are stored in your local database, not in the code.
-
+- SMS credentials are sent to the administrator-configured HTTP(S) gateway endpoint; redirects are rejected. HTTPS is strongly preferred because HTTP exposes API credentials, recipient numbers, and message contents to network observers. Use plain HTTP only when required by the provider and only across a trusted network.
 ## Roadmap
 
 - Optional ping/latency graphs and PNG export of graphs.

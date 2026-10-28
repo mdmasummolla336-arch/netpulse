@@ -1,8 +1,22 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
-  <defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
-    <stop offset="0" stop-color="#8b7cf0"/><stop offset="1" stop-color="#6c5ce7"/></linearGradient></defs>
-  <rect x="4" y="4" width="56" height="56" rx="15" fill="url(#g)"/>
-  <polyline points="11,35 21,35 26,21 33,45 39,29 45,35 53,35" fill="none"
-    stroke="#ffffff" stroke-width="3.6" stroke-linecap="round" stroke-linejoin="round"/>
-  <circle cx="52.5" cy="35" r="4.6" fill="#3ecf6b" stroke="#ffffff" stroke-width="1.6"/>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#102c52"/>
+      <stop offset="1" stop-color="#087eaa"/>
+    </linearGradient>
+  </defs>
+  <rect x="2" y="2" width="60" height="60" rx="16" fill="url(#bg)"/>
+  <g fill="none" stroke="#42e8ed" stroke-width="3" stroke-linecap="round">
+    <path d="M13 22 L27 14 L43 22 L51 35 L39 49 L23 45 L13 22"/>
+    <path d="M13 22 L32 32 L51 35 M27 14 L32 32 L39 49"/>
+  </g>
+  <g fill="#ffffff">
+    <circle cx="13" cy="22" r="4"/>
+    <circle cx="27" cy="14" r="4"/>
+    <circle cx="43" cy="22" r="4"/>
+    <circle cx="51" cy="35" r="4"/>
+    <circle cx="39" cy="49" r="4"/>
+    <circle cx="23" cy="45" r="4"/>
+    <circle cx="32" cy="32" r="5" fill="#42e8ed"/>
+  </g>
 </svg>

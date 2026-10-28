@@ -28,11 +28,14 @@ $now = date('Y-m-d H:i:s'); $nowTs = time();
 
 // linky so SNMP interface + master zariadenie + jeho profil
 $links = $pdo->query(
-    "SELECT l.id, l.snmp_ifindex ifidx, d.ip, sp.community, sp.version, sp.sec_name, sp.auth_pass, sp.priv_pass, sp.auth_proto, sp.priv_proto
+    "SELECT l.id, l.snmp_ifindex ifidx, d.ip, sp.community, sp.version, sp.port, sp.sec_name, sp.auth_pass, sp.priv_pass, sp.auth_proto, sp.priv_proto
      FROM map_links l
      JOIN devices d ON d.id = l.snmp_device
+     LEFT JOIN device_types dt ON dt.id=d.type_id
      LEFT JOIN snmp_profiles sp ON sp.id = d.snmp_profile
-     WHERE l.snmp_type = 1 AND l.snmp_ifindex > 0 AND d.ip IS NOT NULL AND d.ip <> ''")->fetchAll();
+     WHERE l.snmp_type = 1 AND l.snmp_ifindex > 0 AND d.id<>1000004
+       AND UPPER(TRIM(COALESCE(dt.name,'')))<>'OLT'
+       AND d.ip IS NOT NULL AND d.ip <> ''")->fetchAll();
 
 $prev = [];
 foreach ($pdo->query("SELECT link_id, in_oct, out_oct, ts, ts_unix, ctype, uptime FROM link_traffic")->fetchAll() as $r)
@@ -46,7 +49,7 @@ $done = 0;
 foreach ($links as $l) {
     if ($l['version'] === null || (int)$l['version'] < 0) continue;   // bez SNMP
     $idx = (int)$l['ifidx'];
-    $prof = ['version'=>(int)$l['version'],'community'=>$l['community'],'sec_name'=>$l['sec_name'],
+    $prof = ['version'=>(int)$l['version'],'port'=>(int)($l['port']??161),'community'=>$l['community'],'sec_name'=>$l['sec_name'],
              'auth_pass'=>$l['auth_pass'],'priv_pass'=>$l['priv_pass'],'auth_proto'=>$l['auth_proto'],'priv_proto'=>$l['priv_proto']];
     // 64-bit počítadlá (HC); SNMPv1 ich nepodporuje => 32-bit
     $ctype = 'hc';
@@ -88,15 +91,14 @@ foreach ($links as $l) {
     if ($rx !== null || $tx !== null) db_retry(fn() => $hist->execute([$l['id'], $now, $rx, $tx]));
     $done++;
 }
-// upratovanie histórie toku – každých 10 min, po malých dávkach s časovým stropom
-try {
-    if ($nowTs - (int) setting_get('last_purge', '0') >= 600) {
-        setting_set('last_purge', (string)$nowTs);
-        $tDays = max(1, (int) setting_get('traffic_days', (string)(cfg('TRAFFIC_DAYS') ?: 90)));
-        np_purge($pdo, 'traffic_history', date('Y-m-d H:i:s', $nowTs - $tDays * 86400), 3.0);
-    }
-} catch (Throwable $e) { error_log('NetPulse snmp upratovanie: '.$e->getMessage()); }
-fwrite(STDERR, "$done SNMP liniek spracovaných @ $now" . (snmp_cli()?' (snmpget)':(function_exists('snmpget')?' (php-snmp)':' (SNMP nedostupné!)')) . "\n");
+// Legacy traffic_days purge disabled: it could delete favorite graph history.
+// Shared graph retention runs from monitor.php and honors the configured retention period.
+$mx80 = ['polled'=>0,'samples'=>0,'failures'=>0];
+try { $mx80 = np_mx80_poll($pdo); }
+catch (Throwable $e) { error_log('NetPulse MX80 poll: '.$e->getMessage()); }
+fwrite(STDERR, "$done SNMP liniek spracovaných @ $now; "
+    . "{$mx80['polled']} MX80 interfaces polled, {$mx80['samples']} traffic samples"
+    . (snmp_cli()?' (snmpget)':(function_exists('snmpget')?' (php-snmp)':' (SNMP nedostupné!)')) . "\n");
 }
 
 if (($argv[1] ?? '') === 'loop') {

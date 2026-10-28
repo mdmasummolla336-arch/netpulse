@@ -1,5 +1,7 @@
 <?php
 /** PDO pripojenie – jednotné pre SQLite aj MySQL. */
+require_once __DIR__ . '/mx80_lib.php';
+
 function db(): PDO {
     static $pdo = null;
     if ($pdo) return $pdo;
@@ -118,6 +120,24 @@ function db_tx(callable $fn, int $tries = 5): bool {
 
 function np_is_mysql(): bool { return cfg('DB_DRIVER') === 'mysql'; }
 
+/** Create the base application schema for a new or partially initialized database. */
+function np_initialize_schema(PDO $pdo): void {
+    $driver = $pdo->getAttribute(PDO::ATTR_DRIVER_NAME);
+    if ($driver !== 'mysql' && $driver !== 'sqlite') {
+        throw new RuntimeException("Unsupported database driver for schema initialization: $driver");
+    }
+
+    $schemaPath = __DIR__ . ($driver === 'mysql' ? '/schema_mysql.sql' : '/schema_sqlite.sql');
+    $schema = file_get_contents($schemaPath);
+    if ($schema === false) {
+        throw new RuntimeException("Unable to read database schema: $schemaPath");
+    }
+
+    foreach (array_filter(array_map('trim', explode(';', $schema))) as $statement) {
+        $pdo->exec($statement);
+    }
+}
+
 /** Overí, či je WAL naozaj zapnutý (bez neho sa čítanie a zápis blokujú navzájom). */
 function db_journal_mode(): string {
     if (np_is_mysql()) return 'n/a';
@@ -128,7 +148,7 @@ function db_journal_mode(): string {
 /** Vytvor index, ak neexistuje (MySQL 8 nepozná CREATE INDEX IF NOT EXISTS). */
 function np_ensure_index(PDO $pdo, string $table, string $name, string $cols): void {
     try {
-        if (np_is_mysql()) {
+        if ($pdo->getAttribute(PDO::ATTR_DRIVER_NAME) === 'mysql') {
             $st = $pdo->prepare('SELECT 1 FROM information_schema.STATISTICS
                                  WHERE table_schema=DATABASE() AND table_name=? AND index_name=? LIMIT 1');
             $st->execute([$table, $name]);
@@ -189,12 +209,19 @@ function np_cli_guard(): void {
 
 /** Verzia schémy – zvýš pri každej zmene migrate(). Keď DB už má túto verziu,
  *  migrácie sa preskočia (inak by sa pri každej požiadavke skúšalo ~20× ALTER TABLE). */
-const NP_SCHEMA_VERSION = 6;
+const NP_SCHEMA_VERSION = 12;
 
 /** Idempotentné migrácie – doplní chýbajúce stĺpce, tabuľky a indexy v existujúcich DB. */
 function migrate(): void {
     static $done = false; if ($done) return; $done = true;
     $pdo = db();
+    np_initialize_schema($pdo);
+    try {
+        np_mx80_schema($pdo);
+    } catch (Throwable $e) {
+        error_log('NetPulse MX80 schema: '.$e->getMessage());
+        return;
+    }
     if ((int) setting_get('schema_ver', '0') >= NP_SCHEMA_VERSION) return;
     $mysql = np_is_mysql();
     $failed = false;   // schema_ver sa zapíše LEN ak všetko prebehlo (inak by chýbajúci stĺpec zabil monitor natrvalo)
@@ -216,6 +243,8 @@ function migrate(): void {
             created $big, attempts $intt DEFAULT 0, next_try $big)$eng",
         // neúspešné prihlásenia (ochrana proti hádaniu hesla)
         "CREATE TABLE IF NOT EXISTS login_fail(id $auto, ip " . ($mysql?'VARCHAR(64)':'TEXT') . ", ts $big)$eng",
+        // úspešné prihlásenia – meno sa uchová ako snapshot aj po zmazaní používateľa
+        "CREATE TABLE IF NOT EXISTS login_history(id $auto, username " . ($mysql?'VARCHAR(64)':'TEXT') . ", logged_at $big)$eng",
     ] as $sql) {
         try { $pdo->exec($sql); } catch (Throwable $e) { $failed = true; error_log('NetPulse migrate: '.$e->getMessage()); }
     }
@@ -225,7 +254,11 @@ function migrate(): void {
         ['devices', 'down_ts',    $big],                              // epoch začiatku nedostupnosti
         ['maps',    'sort_order', $intt],
         ['devices', 'monitored',  $mysql ? 'TINYINT DEFAULT 1' : 'INTEGER DEFAULT 1'],
+        ['devices', 'ping_fail_count', $mysql ? 'INT NOT NULL DEFAULT 0' : 'INTEGER NOT NULL DEFAULT 0'],
         ['devices', 'password',   $mysql ? 'VARCHAR(255)' : 'TEXT'],
+        ['devices', 'vendor',     $mysql ? "VARCHAR(32) NOT NULL DEFAULT 'unknown'" : "TEXT NOT NULL DEFAULT 'unknown'"],
+        ['map_nodes', 'category', $mysql ? "VARCHAR(32) NOT NULL DEFAULT 'normal'" : "TEXT NOT NULL DEFAULT 'normal'"],
+        ['devices', 'ssh_port',   $mysql ? 'INT NOT NULL DEFAULT 22' : 'INTEGER NOT NULL DEFAULT 22'],
         ['devices', 'notified',   $mysql ? 'VARCHAR(16)' : 'TEXT'],   // posledný zaznamenaný prechod up/down
         ['outages', 'started_ts', $big],
         ['snmp_profiles','sec_name',  $mysql ? 'VARCHAR(128)' : 'TEXT'],
@@ -262,9 +295,14 @@ function migrate(): void {
     np_ensure_index($pdo, 'notify_queue',    'idx_nq_next',   'next_try');
     np_ensure_index($pdo, 'login_fail',      'idx_lf_ip_ts',  'ip, ts');
     // over, že kľúčové stĺpce naozaj existujú – až potom označ schému ako hotovú
-    foreach ([['devices','down_ts'],['devices','notified'],['outages','started_ts'],['link_traffic','ts_unix'],
-              ['link_traffic','ctype'],['link_traffic','uptime'],['notify_queue','next_try'],['login_fail','ts']] as [$t,$c]) {
+    foreach ([['map_nodes','category'],['devices','down_ts'],['devices','notified'],['devices','ping_fail_count'],['devices','vendor'],['devices','ssh_port'],['outages','started_ts'],['link_traffic','ts_unix'],
+              ['link_traffic','ctype'],              ['link_traffic','uptime'],['notify_queue','next_try'],['login_fail','ts'],
+              ['login_history','username'],['login_history','logged_at']] as [$t,$c]) {
         if (!np_column_exists($pdo, $t, $c)) { $failed = true; error_log("NetPulse migrate: chýba $t.$c"); }
+    }
+    foreach (['mx80_categories','mx80_interfaces','mx80_counters','mx80_traffic_history','mx80_category_permissions'] as $table) {
+        try { $pdo->query("SELECT 1 FROM $table LIMIT 0"); }
+        catch (Throwable $e) { $failed = true; error_log("NetPulse migrate: chýba tabuľka $table"); }
     }
     try { np_ensure_builtin_probes($pdo); } catch (Throwable $e) { $failed = true; error_log('NetPulse migrate sondy: '.$e->getMessage()); }
     if ($failed) { error_log('NetPulse migrate: nedokončené – zopakuje sa pri ďalšom behu'); return; }
@@ -285,7 +323,7 @@ function np_ensure_builtin_probes(PDO $pdo): void {
 
 function np_column_exists(PDO $pdo, string $t, string $c): bool {
     try {
-        if (np_is_mysql()) {
+        if ($pdo->getAttribute(PDO::ATTR_DRIVER_NAME) === 'mysql') {
             $st = $pdo->prepare('SELECT 1 FROM information_schema.COLUMNS WHERE table_schema=DATABASE() AND table_name=? AND column_name=?');
             $st->execute([$t, $c]); return (bool)$st->fetchColumn();
         }
@@ -330,4 +368,4 @@ function setting_set(string $k, $v): void {
     $pdo->prepare("$repl app_settings(k,v) VALUES(?,?)")->execute([$k,(string)$v]);
 }
 
-np_init_tz();
+if (!defined('NP_SKIP_INIT_TZ')) np_init_tz();
