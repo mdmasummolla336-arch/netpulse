@@ -148,6 +148,14 @@ function snmp_result_status(array $output, int $exitCode, bool $hasValues): stri
 
 function snmp_parse_value(string $value, string $baseOid): ?array {
     $value = trim($value);
+
+    // Net-SNMP -Oqn output: OID followed by a quoted string value.
+    if (strlen($value) >= 2 && $value[0] === '"' && substr($value, -1) === '"') {
+        return [
+            'type' => 'string',
+            'value' => stripcslashes(substr($value, 1, -1))
+        ];
+    }
     if (preg_match('/^-?\d+$/', $value)) {
         return ['type'=>'integer', 'value'=>$value];
     }
@@ -191,7 +199,7 @@ function snmp_parse_walk_output_details(array $output, string $baseOid): array {
     $invalid = false;
     $prefix = trim($baseOid, '.');
     foreach ($output as $line) {
-        if (!preg_match('/^\.?(\d+(?:\.\d+)+)\s*(?:=\s*)?(.+)$/', trim($line), $match)) {
+        if (!preg_match('/^\.?(\d+(?:\.\d+)+)\s*(?:=\s*|\s+)(.+)$/', trim($line), $match)) {
             $invalid = true;
             continue;
         }

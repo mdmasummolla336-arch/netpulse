@@ -15,6 +15,7 @@
 require __DIR__ . '/cli_guard.php';   // len z príkazového riadka, nie ako root
 require __DIR__ . '/db.php';
 require __DIR__ . '/telegram.php';
+require_once __DIR__ . '/sms.php';
 require_once __DIR__ . '/snmp_lib.php';
 require_once __DIR__ . '/olt_monitor_lib.php';
 np_cli_guard();
